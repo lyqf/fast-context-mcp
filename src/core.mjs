@@ -1015,6 +1015,7 @@ export async function search({
   // Total API calls = maxTurns + 1 (last round for answer)
   const totalApiCalls = maxTurns + 1;
   let compensatedTurns = 0; // 补偿的轮次数
+  const MAX_COMPENSATIONS = 2; // 最大补偿次数，防止死循环
 
   for (let turn = 0; turn < totalApiCalls + compensatedTurns; turn++) {
     log(`Turn ${turn + 1}/${totalApiCalls}`);
@@ -1086,9 +1087,11 @@ export async function search({
         return c && c.type; // 至少有 type 字段
       });
 
-      if (validCommands.length === 0) {
+      if (validCommands.length === 0 && compensatedTurns < MAX_COMPENSATIONS) {
         compensatedTurns++; // 补偿：这轮不算有效轮次
-        log(`Turn compensation: no valid commands, extending search by 1 turn`);
+        log(`Turn compensation: no valid commands, extending search by 1 turn (${compensatedTurns}/${MAX_COMPENSATIONS})`);
+      } else if (validCommands.length === 0) {
+        log(`Turn compensation skipped: max compensations (${MAX_COMPENSATIONS}) reached, forcing turn advance`);
       }
 
       messages.push({
@@ -1100,8 +1103,10 @@ export async function search({
       });
       messages.push({ role: 4, content: results, ref_call_id: callId });
 
-      // Inject force-answer after last search round
-      if (turn >= maxTurns - 1) {
+      // Inject force-answer after last effective search round
+      // Use effective turn count (excluding compensated turns) to avoid premature injection
+      const effectiveTurn = turn - compensatedTurns;
+      if (effectiveTurn >= maxTurns - 1) {
         messages.push({ role: 1, content: FINAL_FORCE_ANSWER });
         log("Injected force-answer prompt");
       }
