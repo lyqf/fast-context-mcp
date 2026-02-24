@@ -1014,8 +1014,9 @@ export async function search({
 
   // Total API calls = maxTurns + 1 (last round for answer)
   const totalApiCalls = maxTurns + 1;
+  let compensatedTurns = 0; // 补偿的轮次数
 
-  for (let turn = 0; turn < totalApiCalls; turn++) {
+  for (let turn = 0; turn < totalApiCalls + compensatedTurns; turn++) {
     log(`Turn ${turn + 1}/${totalApiCalls}`);
 
     const proto = _buildRequest(apiKey, jwt, messages, toolDefs);
@@ -1078,6 +1079,17 @@ export async function search({
       log(`Executing ${cmds.length} local commands`);
 
       const results = await executor.execToolCallAsync(toolArgs);
+
+      // 检测到所有 command 都是无效的 → 不算有效轮次
+      const validCommands = cmds.filter(k => {
+        const c = toolArgs[k];
+        return c && c.type; // 至少有 type 字段
+      });
+
+      if (validCommands.length === 0) {
+        compensatedTurns++; // 补偿：这轮不算有效轮次
+        log(`Turn compensation: no valid commands, extending search by 1 turn`);
+      }
 
       messages.push({
         role: 2,
